@@ -1,0 +1,20 @@
+#!/bin/sh
+# First boot on the NixOS AMI. The amazon-init service runs this once, then the
+# flake turns amazon-init off. Read the log with `journalctl -u amazon-init`.
+set -eux
+
+mkdir -p /etc/nixos
+echo '${flake_nix}' | base64 -d > /etc/nixos/flake.nix
+echo '${configuration_nix}' | base64 -d > /etc/nixos/configuration.nix
+echo '${box_json}' | base64 -d > /etc/nixos/box.json
+
+# Swap before the first build; the flake keeps the same file as swap afterward.
+if [ ! -e /var/lib/swapfile ]; then
+  fallocate -l 4096M /var/lib/swapfile
+  chmod 600 /var/lib/swapfile
+  mkswap /var/lib/swapfile
+  swapon /var/lib/swapfile
+fi
+
+export NIX_CONFIG="experimental-features = nix-command flakes"
+nixos-rebuild switch --flake /etc/nixos#box
