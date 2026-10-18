@@ -2,7 +2,6 @@
   lib,
   pkgs,
   modulesPath,
-  warlock,
   ...
 }:
 
@@ -10,10 +9,43 @@ let
   # Per-person values. Terraform writes this file from terraform.tfvars.
   box = builtins.fromJSON (builtins.readFile ./box.json);
 
-  # CI already runs warlock's tests; skipping them here keeps first boot shorter.
-  warlockPkg = warlock.packages.${pkgs.stdenv.hostPlatform.system}.default.overrideAttrs {
-    doCheck = false;
-  };
+  # The tools Warlock's skills drive. A headless run sees only this PATH.
+  claudeTools = lib.makeBinPath [
+    pkgs.claude-code
+    pkgs.gh
+    pkgs.git
+    pkgs.jq
+    pkgs.python3
+  ];
+
+  # Warlock is a Claude Code plugin, so it lives in the user's ~/.claude, not
+  # in the Nix store. These scripts manage it as that user.
+  warlockInstall = pkgs.writeShellScriptBin "warlock-install" ''
+    set -euo pipefail
+    export PATH=${claudeTools}:$PATH
+    if ! claude plugin marketplace list --json | jq -e 'any(.[]; .name == "warlock")' >/dev/null; then
+      claude plugin marketplace add 'https://github.com/Genetic-Pottery/warlock.git#${box.warlock_ref}'
+    fi
+    if ! claude plugin list --json | jq -e 'any(.[]; .id == "warlock@warlock")' >/dev/null; then
+      claude plugin install warlock@warlock
+    fi
+    echo "warlock is installed. Next, run 'claude', then '/mcp' to sign in to Linear or Jira."
+  '';
+
+  warlockUpdate = pkgs.writeShellScriptBin "warlock-update" ''
+    set -euo pipefail
+    export PATH=${claudeTools}:$PATH
+    claude plugin marketplace update warlock
+    claude plugin update warlock@warlock
+  '';
+
+  # Runs /warlock:pull once, headless, in the repository you're in.
+  warlockPull = pkgs.writeShellScriptBin "warlock-pull" ''
+    set -euo pipefail
+    export PATH=${claudeTools}:$PATH
+    exec claude -p "/warlock:pull $* No person is available." \
+      --allowedTools "Bash,Read,Grep,Glob,Edit,Write,Agent,mcp__claude_ai_Linear,mcp__claude_ai_Atlassian_MCP"
+  '';
 
   rebuild = ''
     if [ "$(id -u)" -ne 0 ]; then exec sudo "$0" "$@"; fi
@@ -24,13 +56,6 @@ let
         pkgs.nixos-rebuild
       ]
     }:$PATH
-  '';
-
-  warlockUpdate = pkgs.writeShellScriptBin "warlock-update" ''
-    set -euo pipefail
-    ${rebuild}
-    nix flake update warlock --flake /etc/nixos
-    nixos-rebuild switch --flake /etc/nixos#box
   '';
 
   boxUpdate = pkgs.writeShellScriptBin "box-update" ''
@@ -47,7 +72,8 @@ let
     echo "warlock box"
     if ${pkgs.gh}/bin/gh auth status >/dev/null 2>&1; then ok "GitHub: logged in"; else todo "GitHub: run 'gh auth login'"; fi
     if [ -s "$HOME/.claude/.credentials.json" ]; then ok "Claude: logged in"; else todo "Claude: run 'claude' and log in"; fi
-    echo "  warlock: $(${warlockPkg}/bin/warlock --version 2>/dev/null || echo installed)"
+    if PATH=${claudeTools}:$PATH claude plugin list --json 2>/dev/null | ${pkgs.jq}/bin/jq -e 'any(.[]; .id == "warlock@warlock")' >/dev/null; then ok "warlock: installed"; else todo "warlock: run 'warlock-install'"; fi
+    echo "  Trackers: in claude, run '/mcp' and sign in to Linear or Jira"
     echo
   '';
 in
@@ -73,7 +99,7 @@ in
 
   nixpkgs.config.allowUnfreePredicate = pkg: builtins.elem (lib.getName pkg) [ "claude-code" ];
 
-  # Rust builds need more memory than small instances have.
+  # Headroom for long Claude Code sessions and their subagents.
   swapDevices = [
     {
       device = "/var/lib/swapfile";
@@ -100,10 +126,12 @@ in
     fd
     gh
     jq
+    python3
     ripgrep
     rsync
-    warlockPkg
+    warlockInstall
     warlockUpdate
+    warlockPull
     boxUpdate
     boxStatus
   ];
@@ -143,11 +171,16 @@ in
     fi
   '';
 
-  # Track warlock's main branch: pull the newest commit and rebuild daily.
+  # Refresh the warlock plugin from its pinned ref once a day. A moving tag such
+  # as `v0` picks up new releases; a fixed one such as `v0.1.0` never changes.
   systemd.services.warlock-update = lib.mkIf box.auto_update {
-    description = "Update warlock to the latest commit on main";
-    serviceConfig.Type = "oneshot";
-    serviceConfig.ExecStart = "${warlockUpdate}/bin/warlock-update";
+    description = "Update the warlock Claude Code plugin";
+    serviceConfig = {
+      Type = "oneshot";
+      User = box.username;
+      ExecStart = "${warlockUpdate}/bin/warlock-update";
+    };
+    environment.HOME = "/home/${box.username}";
     restartIfChanged = false;
   };
   systemd.timers.warlock-update = lib.mkIf box.auto_update {

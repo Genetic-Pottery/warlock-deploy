@@ -41,6 +41,7 @@ locals {
     git_user_email = var.git_user_email
     auto_tmux      = var.auto_tmux
     auto_update    = var.auto_update
+    warlock_ref    = var.warlock_ref
     state_version  = var.nixos_release
     host_platform  = var.architecture == "arm64" ? "aarch64-linux" : "x86_64-linux"
   })

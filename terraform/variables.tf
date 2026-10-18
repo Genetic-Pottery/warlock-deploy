@@ -52,7 +52,7 @@ variable "name" {
 }
 
 variable "instance_type" {
-  description = "EC2 instance type. The first boot builds warlock from source, which wants at least 4 GiB of memory."
+  description = "EC2 instance type. Long Claude Code sessions with subagents want at least 4 GiB of memory."
   type        = string
   default     = "t3.medium"
 }
@@ -88,8 +88,14 @@ variable "username" {
   default     = "warlock"
 }
 
+variable "warlock_ref" {
+  description = "Git ref of the warlock plugin to install: a moving tag such as \"v0\" follows releases, a fixed one such as \"v0.1.0\" never changes."
+  type        = string
+  default     = "v0"
+}
+
 variable "auto_update" {
-  description = "Update warlock to the latest commit on main and rebuild once a day."
+  description = "Refresh the warlock plugin from warlock_ref once a day."
   type        = bool
   default     = true
 }

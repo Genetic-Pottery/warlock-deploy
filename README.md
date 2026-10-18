@@ -1,9 +1,9 @@
 # warlock-deploy
 
 Terraform that runs a personal NixOS box on EC2 with Claude Code, the GitHub
-CLI, git, and [warlock](https://github.com/Genetic-Pottery/warlock). SSH in from
-anywhere and you land in a persistent tmux session where you can run `claude`
-and ask it to use warlock for you.
+CLI, git, and the [Warlock](https://github.com/Genetic-Pottery/warlock) plugin.
+SSH in from anywhere and you land in a persistent tmux session. Run `claude`
+there, or leave `/warlock:pull` working tickets while your laptop is closed.
 
 ## What you get
 
@@ -12,8 +12,10 @@ The box comes with the following:
 - NixOS on a `t3.medium` with a 40 GiB encrypted disk and a fixed public IP.
 - SSH open only to the IP ranges you list, with key login only and no root
   login.
-- Claude Code, `gh`, git, tmux, ripgrep, fd, and jq.
-- warlock built from the flake on its `main` branch, updated daily.
+- Claude Code, `gh`, git, Python 3, tmux, ripgrep, fd, and jq.
+- A `warlock-install` command that installs the Warlock plugin from a pinned
+  ref, and a daily refresh from that ref.
+- A `warlock-pull` command that runs `/warlock:pull` headless.
 - git set up with your name and email, using `gh` for GitHub credentials.
 - A login banner that lists the setup steps you haven't finished.
 
@@ -29,6 +31,9 @@ You need the following on your own machine:
 - Terraform 1.6 or later.
 - An SSH key pair. To make one, run `ssh-keygen -t ed25519`.
 - A Claude subscription or API key, and a GitHub account.
+- A Linear or Jira Cloud workspace, connected to your Claude account. See
+  Warlock's [Get started](https://github.com/Genetic-Pottery/warlock/blob/main/GETTING-STARTED.md)
+  guide for the tracker setup.
 
 You don't need Nix on your machine.
 
@@ -52,8 +57,8 @@ You don't need Nix on your machine.
    terraform apply
    ```
 
-1. Wait for first boot to finish. The box builds its NixOS system and warlock
-   from source, which can take 20 minutes or more:
+1. Wait for first boot to finish. The box builds its NixOS system, which can
+   take several minutes:
 
    ```sh
    ../scripts/wait-for-box.sh warlock@$(terraform output -raw public_ip)
@@ -72,6 +77,16 @@ You don't need Nix on your machine.
 
    Logins happen on the box, not in Terraform. Anything passed through
    Terraform ends up in the state file and the instance metadata.
+
+1. Install Warlock, then sign in to your tracker:
+
+   ```sh
+   warlock-install
+   claude
+   ```
+
+   In Claude, run `/mcp`, select Linear or Atlassian, and complete sign-in. The
+   SSH session is a real terminal, so the sign-in menu works here.
 
 1. Optional: copy your local Claude Code setup (`CLAUDE.md`, settings, skills,
    plugins, and themes) to the box:
@@ -97,12 +112,27 @@ and close your laptop. The session keeps running.
 | Detach and leave Claude running | Press `Ctrl-b d` |
 | Reattach | SSH in again |
 | Resume an earlier conversation | Run `claude --resume` |
-| Update warlock now | Run `warlock-update` |
+| Work one ticket with nobody watching | In a repository, run `warlock-pull [scope or ticket key]` |
+| Update the Warlock plugin now | Run `warlock-update` |
 | Update everything, including Claude Code | Run `box-update` |
 | Check what's left to set up | Run `box-status` |
 
-`warlock-update` moves warlock to the newest commit on `main` and rebuilds. A
-timer runs it once a day. To turn the timer off, set `auto_update = false`.
+`warlock-pull` runs `/warlock:pull` once, headless, and tells it nobody can
+answer questions. It ends in a pull request, a paused ticket, or a halted
+ticket, the same as an interactive pull. To keep working tickets as they
+arrive, run it in a loop inside tmux:
+
+```sh
+while true; do warlock-pull; sleep 600; done
+```
+
+Each pass costs a short Claude session even when the queue is empty, so pick a
+sleep that matches how often tickets arrive.
+
+`warlock-update` refreshes the plugin from `warlock_ref`, which defaults to the
+moving `v0` tag, so new `0.x` releases arrive on their own. To stay on one
+release, set `warlock_ref = "v0.1.0"`. A timer runs `warlock-update` once a day.
+To turn the timer off, set `auto_update = false`.
 
 `box-update` also updates nixpkgs, which brings new versions of Claude Code,
 `gh`, and everything else. Claude Code's built-in updater doesn't work on
@@ -130,8 +160,9 @@ To delete everything, run `terraform destroy`.
 ## Change the box
 
 Changes to the NixOS files or to the values in `box.json` (`git_user_*`,
-`username`, `auto_*`, or the SSH key) replace the instance. A replacement
-wipes the disk, so you must log in to `gh` and `claude` again.
+`username`, `auto_*`, `warlock_ref`, or the SSH key) replace the instance. A replacement
+wipes the disk, so you must log in to `gh` and `claude`, run `warlock-install`,
+and sign in to your tracker again.
 
 To change a running box without replacing it, edit the files in `/etc/nixos`
 on the box and run `sudo nixos-rebuild switch --flake /etc/nixos#box`. Copy
@@ -142,9 +173,13 @@ system current instead.
 
 ## Security notes
 
-- Claude on this box can do anything your GitHub token allows. We recommend a
-  fine-grained token limited to the repositories you want it to touch. To use
-  one, run `gh auth login --with-token` and paste the token.
+- Claude on this box can do anything your GitHub token allows. Warlock's hooks
+  keep its file edits inside a ticket's scope, but they don't stop it from
+  running `git push` or `gh` itself. We recommend a fine-grained token limited
+  to the repositories you want it to touch, with no rights to push to protected
+  branches. To use one, run `gh auth login --with-token` and paste the token.
+- In each repository it works on, make Warlock's CI check a required status
+  check. That check is what stops an out-of-scope pull request from merging.
 - The box has no AWS permissions, so it can't touch your AWS account.
 - Keep `allowed_ssh_cidrs` tight. If your IP changes, update it and run
   `terraform apply`. This change doesn't replace the instance.
