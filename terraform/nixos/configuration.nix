@@ -47,6 +47,28 @@ let
       --allowedTools "Bash,Read,Grep,Glob,Edit,Write,Agent,mcp__claude_ai_Linear,mcp__claude_ai_Atlassian_MCP"
   '';
 
+  # remote-control-enable creates this file; the service doesn't start without it.
+  remoteControlMarker = "/home/${box.username}/.local/state/warlock-box/remote-control";
+
+  # Remote Control asks two questions on its first run: whether to turn it on,
+  # and whether to trust ~/Projects. Answer them here in a terminal; after that
+  # the remote-control service runs it unattended.
+  remoteControlEnable = pkgs.writeShellScriptBin "remote-control-enable" ''
+    set -euo pipefail
+    export PATH=${claudeTools}:$PATH
+    cd "$HOME/Projects"
+    echo "Starting Remote Control in ~/Projects. Answer its prompts, check that"
+    echo "this box shows up in the Claude app, then press Ctrl-C."
+    # Keep this script alive through Ctrl-C so it can finish the setup below.
+    trap : INT
+    claude remote-control || true
+    trap - INT
+    mkdir -p "$(dirname ${remoteControlMarker})"
+    touch ${remoteControlMarker}
+    sudo systemctl restart remote-control
+    echo "Remote Control is running and restarts on its own, including after a reboot."
+  '';
+
   rebuild = ''
     if [ "$(id -u)" -ne 0 ]; then exec sudo "$0" "$@"; fi
     export PATH=${
@@ -73,6 +95,7 @@ let
     if ${pkgs.gh}/bin/gh auth status >/dev/null 2>&1; then ok "GitHub: logged in"; else todo "GitHub: run 'gh auth login'"; fi
     if [ -s "$HOME/.claude/.credentials.json" ]; then ok "Claude: logged in"; else todo "Claude: run 'claude' and log in"; fi
     if PATH=${claudeTools}:$PATH claude plugin list --json 2>/dev/null | ${pkgs.jq}/bin/jq -e 'any(.[]; .id == "warlock@warlock")' >/dev/null; then ok "warlock: installed"; else todo "warlock: run 'warlock-install'"; fi
+    if systemctl is-active --quiet remote-control; then ok "Remote Control: running"; else todo "Remote Control: run 'remote-control-enable'"; fi
     echo "  Trackers: in claude, run '/mcp' and sign in to Linear or Jira"
     echo
   '';
@@ -110,15 +133,21 @@ in
   users.users.${box.username} = {
     isNormalUser = true;
     extraGroups = [ "wheel" ];
-    openssh.authorizedKeys.keys = [ box.ssh_public_key ];
   };
   security.sudo.wheelNeedsPassword = false;
 
-  services.openssh.settings = {
-    PasswordAuthentication = false;
-    KbdInteractiveAuthentication = false;
-    PermitRootLogin = lib.mkForce "no";
+  # The only way in. Tailscale SSH checks your tailnet identity, so no SSH keys
+  # live on the box, and the security group allows no inbound traffic.
+  services.tailscale = {
+    enable = true;
+    authKeyFile = "/var/lib/tailscale-authkey";
+    extraUpFlags = [ "--ssh" ];
   };
+  services.openssh.enable = lib.mkForce false;
+
+  # Remote Control sessions start here. Ask Claude to clone or edit any repo
+  # under it.
+  systemd.tmpfiles.rules = [ "d /home/${box.username}/Projects 0755 ${box.username} users -" ];
 
   environment.systemPackages = with pkgs; [
     claude-code
@@ -132,6 +161,7 @@ in
     warlockInstall
     warlockUpdate
     warlockPull
+    remoteControlEnable
     boxUpdate
     boxStatus
   ];
@@ -189,6 +219,34 @@ in
       OnCalendar = "daily";
       Persistent = true;
       RandomizedDelaySec = "1h";
+    };
+  };
+
+  # One Remote Control server for every session you start from the Claude app.
+  # It waits for remote-control-enable, which answers its first-run prompts.
+  systemd.services.remote-control = {
+    description = "Claude Code Remote Control server";
+    wantedBy = [ "multi-user.target" ];
+    wants = [ "network-online.target" ];
+    after = [ "network-online.target" ];
+    unitConfig = {
+      ConditionPathExists = remoteControlMarker;
+      StartLimitIntervalSec = 0;
+    };
+    # Claude's tools need the same commands you have in a login shell.
+    path = [
+      "/run/wrappers"
+      "/run/current-system/sw"
+    ];
+    environment.HOME = "/home/${box.username}";
+    serviceConfig = {
+      User = box.username;
+      WorkingDirectory = "/home/${box.username}/Projects";
+      # --capacity keeps concurrent sessions within a t3.medium's memory.
+      ExecStart = "${pkgs.claude-code}/bin/claude remote-control --spawn same-dir --capacity 4";
+      # The server exits after a long network outage; bring it back.
+      Restart = "always";
+      RestartSec = 30;
     };
   };
 }

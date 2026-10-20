@@ -4,7 +4,7 @@
 #
 # It never copies login credentials, conversation history, or project memory.
 #
-# Usage: scripts/sync-claude-config.sh ubuntu@<box-ip>
+# Usage: scripts/sync-claude-config.sh <user>@<tailnet-hostname>
 set -euo pipefail
 
 if [[ $# -ne 1 ]]; then

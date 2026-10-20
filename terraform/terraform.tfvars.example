@@ -2,12 +2,11 @@
 #   cp terraform.tfvars.example terraform.tfvars
 
 # Required
-git_user_name     = "Your Name"
-git_user_email    = "you@example.com"
-allowed_ssh_cidrs = ["203.0.113.7/32"] # your IP: curl -s https://checkip.amazonaws.com
+git_user_name      = "Your Name"
+git_user_email     = "you@example.com"
+tailscale_auth_key = "tskey-auth-..." # one-time key: https://login.tailscale.com/admin/settings/keys
 
 # Optional (defaults shown)
-# ssh_public_key_path = "~/.ssh/id_ed25519.pub"
 # username            = "warlock"
 # aws_region          = "us-east-1"
 # aws_profile         = null

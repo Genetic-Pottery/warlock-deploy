@@ -10,24 +10,14 @@ variable "git_user_email" {
   type        = string
 }
 
-variable "ssh_public_key_path" {
-  description = "Path to the SSH public key you log in with."
+variable "tailscale_auth_key" {
+  description = "One-time Tailscale auth key the box uses to join your tailnet on first boot. Make a new one for every new box."
   type        = string
-  default     = "~/.ssh/id_ed25519.pub"
-}
-
-variable "allowed_ssh_cidrs" {
-  description = "CIDR blocks allowed to SSH in. Use your own IP as a /32, for example [\"203.0.113.7/32\"]."
-  type        = list(string)
+  sensitive   = true
 
   validation {
-    condition     = length(var.allowed_ssh_cidrs) > 0
-    error_message = "Give at least one CIDR. Find your IP with `curl -s https://checkip.amazonaws.com`."
-  }
-
-  validation {
-    condition     = alltrue([for c in var.allowed_ssh_cidrs : can(cidrhost(c, 0)) && strcontains(c, "/")])
-    error_message = "Each entry must be a CIDR block. For a single IP, add /32, for example \"203.0.113.7/32\"."
+    condition     = startswith(var.tailscale_auth_key, "tskey-auth-")
+    error_message = "Use a Tailscale auth key, which starts with tskey-auth-. Make one at https://login.tailscale.com/admin/settings/keys."
   }
 }
 

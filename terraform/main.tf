@@ -36,7 +36,6 @@ locals {
   box_json = jsonencode({
     username       = var.username
     hostname       = var.name
-    ssh_public_key = trimspace(file(pathexpand(var.ssh_public_key_path)))
     git_user_name  = var.git_user_name
     git_user_email = var.git_user_email
     auto_tmux      = var.auto_tmux
@@ -50,27 +49,16 @@ locals {
     flake_nix         = base64encode(file("${path.module}/nixos/flake.nix"))
     configuration_nix = base64encode(file("${path.module}/nixos/configuration.nix"))
     box_json          = base64encode(local.box_json)
+    tailscale_authkey = base64encode(var.tailscale_auth_key)
   })
-}
-
-resource "aws_key_pair" "this" {
-  key_name   = var.name
-  public_key = file(pathexpand(var.ssh_public_key_path))
 }
 
 resource "aws_security_group" "this" {
   name        = var.name
-  description = "SSH in from allowed CIDRs; all traffic out."
+  description = "No inbound traffic; all traffic out."
   vpc_id      = data.aws_vpc.default.id
 
-  ingress {
-    description = "SSH"
-    from_port   = 22
-    to_port     = 22
-    protocol    = "tcp"
-    cidr_blocks = var.allowed_ssh_cidrs
-  }
-
+  # No ingress rules. Tailscale and Remote Control both connect outbound.
   egress {
     description = "All outbound"
     from_port   = 0
@@ -84,8 +72,10 @@ resource "aws_instance" "this" {
   ami                    = data.aws_ami.nixos.id
   instance_type          = var.instance_type
   subnet_id              = data.aws_subnets.default.ids[0]
-  key_name               = aws_key_pair.this.key_name
   vpc_security_group_ids = [aws_security_group.this.id]
+
+  # A public IP for outbound traffic only. It avoids paying for a NAT gateway.
+  associate_public_ip_address = true
 
   user_data                   = local.user_data
   user_data_replace_on_change = true
@@ -111,12 +101,3 @@ resource "aws_instance" "this" {
   }
 }
 
-# A fixed address that survives stopping and starting the instance.
-resource "aws_eip" "this" {
-  instance = aws_instance.this.id
-  domain   = "vpc"
-
-  tags = {
-    Name = var.name
-  }
-}

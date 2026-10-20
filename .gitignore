@@ -1,7 +1,7 @@
 # Terraform working directory and provider cache
 .terraform/
 
-# State holds your IP, SSH key, git identity, and resource IDs
+# State holds your Tailscale auth key, git identity, and resource IDs
 *.tfstate
 *.tfstate.*
 
