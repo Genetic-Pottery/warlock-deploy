@@ -11,15 +11,14 @@ output "ssh_command" {
 output "next_steps" {
   description = "What to do after apply."
   value       = <<-EOT
-    1. Wait for first boot to finish (it builds the NixOS system):
-         ../scripts/wait-for-box.sh ${var.name}
-    2. Log in:            ssh ${var.username}@${var.name}
+    From your phone, with Tailscale and an SSH app (see the README):
+    1. Wait for ${var.name} to appear in the Tailscale app.
+    2. SSH to ${var.name} as ${var.username}. No password or key.
     3. Log in to GitHub:  gh auth login
-    4. Log in to Claude:  claude
+    4. Log in to Claude:  cd ~/Projects && claude
     5. Install warlock:   warlock-install
     6. Sign in to your tracker: in claude, run /mcp
     7. Turn on Remote Control: remote-control-enable
-    8. Optional, from your own machine, copy your Claude config:
-         ../scripts/sync-claude-config.sh ${var.username}@${var.name}
+       Press Ctrl-C once ${var.name} appears in the Claude app.
   EOT
 }

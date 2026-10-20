@@ -30,28 +30,41 @@ details as `/etc/nixos/box.json` on the box.
 
 You need the following:
 
-- An AWS account, with credentials the AWS CLI can use (`aws sts
-  get-caller-identity` succeeds).
-- Terraform 1.6 or later.
-- A [Tailscale](https://tailscale.com) account, with Tailscale running on your
-  laptop and phone.
+- A computer with Terraform 1.6 or later, and AWS credentials the AWS CLI can
+  use (`aws sts get-caller-identity` succeeds). You need it only to create the
+  box.
+- A phone with these apps:
+  - [Tailscale](https://tailscale.com), signed in to your tailnet.
+  - The Claude app, signed in to the account you use on the box.
+  - An SSH app. Termius works on iOS and Android, and its free tier covers
+    this setup. You can skip the Pro trial it offers.
 - A Claude Pro, Max, Team, or Enterprise plan. Remote Control needs a claude.ai
   login; API keys don't work with it. On Team and Enterprise, an owner must turn
   on Remote Control in the admin settings.
-- The Claude mobile app, signed in to the same account.
 - A GitHub account.
 - A Linear or Jira Cloud workspace, connected to your Claude account. See
   Warlock's [Get started](https://github.com/Genetic-Pottery/warlock/blob/main/GETTING-STARTED.md)
   guide for the tracker setup.
 
-You don't need Nix or an SSH key on your machine.
+You don't need Nix, an SSH key, or Tailscale on your computer.
 
 ## Set up the box
 
+You create the box from your computer, then finish setup from your phone. The
+phone steps work the same from any terminal on your tailnet.
+
+### Create the box from your computer
+
 1. In the Tailscale admin console, open
-   [Keys](https://login.tailscale.com/admin/settings/keys) and generate an auth
-   key. Leave **Reusable** off, and set the expiry to one day or less. The box
-   uses the key once, on first boot.
+   [Keys](https://login.tailscale.com/admin/settings/keys) and click
+   **Generate auth key**. Use these settings:
+
+   - **Reusable:** off. The box uses the key once, on first boot.
+   - **Expiration:** one day.
+   - **Ephemeral:** off. Tailscale removes an ephemeral device when it goes
+     offline, so stopping the instance would drop it.
+   - **Tags:** none. Tailscale's default SSH rule covers only devices you own,
+     and a tagged device isn't one.
 
 1. Fill in your details:
 
@@ -61,7 +74,9 @@ You don't need Nix or an SSH key on your machine.
    ```
 
    Edit `terraform.tfvars`. The required values are `git_user_name`,
-   `git_user_email`, and `tailscale_auth_key`.
+   `git_user_email`, and `tailscale_auth_key`. Keep the key in the file after
+   setup. If you leave it out, every `terraform apply` asks for it, and a
+   different key replaces the box.
 
 1. Create the box:
 
@@ -70,23 +85,41 @@ You don't need Nix or an SSH key on your machine.
    terraform apply
    ```
 
-1. Wait for first boot to finish. The box builds its NixOS system, which can
-   take several minutes, and then joins your tailnet:
+### Finish setup from your phone
+
+1. Wait for `warlock-box` to appear in the Tailscale app. The box joins your
+   tailnet when its first NixOS build finishes, which takes several minutes.
+
+1. In your SSH app, add a host with these values:
+
+   - **Host:** `warlock-box`, or the `100.x.y.z` address the Tailscale app
+     shows for it.
+   - **Username:** `warlock`.
+
+   Leave the port at 22, and leave the password and key empty. Tailscale SSH
+   checks your tailnet identity instead.
+
+1. Connect. Tailscale prints a URL the first time. Open it in your browser and
+   approve the login, and the session continues.
+
+1. Log in to GitHub:
 
    ```sh
-   ../scripts/wait-for-box.sh warlock-box
+   gh auth login
    ```
 
-1. Log in and authenticate:
+   Choose GitHub.com, HTTPS, and login with a web browser. Copy the code, open
+   the URL in your browser, and enter the code.
+
+1. Log in to Claude:
 
    ```sh
-   ssh warlock@warlock-box
-   gh auth login
+   cd ~/Projects
    claude
    ```
 
-   Both logins print a URL or code. Open it in a browser on any device. Neither
-   needs an inbound connection to the box.
+   Copy the login URL to your browser, then paste the code back. When Claude
+   asks whether you trust `~/Projects`, answer yes. Exit with `/exit`.
 
    Logins happen on the box, not in Terraform. Anything passed through
    Terraform ends up in the state file and the instance metadata.
@@ -99,6 +132,7 @@ You don't need Nix or an SSH key on your machine.
    ```
 
    In Claude, run `/mcp`, select Linear or Atlassian, and complete sign-in.
+   Exit with `/exit`.
 
 1. Turn on Remote Control:
 
@@ -106,27 +140,39 @@ You don't need Nix or an SSH key on your machine.
    remote-control-enable
    ```
 
-   Answer its prompts. When the box appears in the Claude app, press `Ctrl-C`.
-   The command then hands the server to a system service that keeps it
-   running.
+   The command runs in the foreground so you can answer its prompts. When
+   `warlock-box` appears in the Claude app, switch back to the SSH app and
+   press `Ctrl-C`. The command then hands the server to a system service that
+   keeps it running.
 
-1. Optional: copy your local Claude Code setup (`CLAUDE.md`, settings, skills,
-   plugins, and themes) to the box:
+1. Check the server:
 
    ```sh
-   ../scripts/sync-claude-config.sh warlock@warlock-box
+   systemctl status remote-control
    ```
 
-   The script never copies credentials, history, or project memory. Check your
-   `settings.json` before you sync. Settings that describe your own machine,
-   such as auto mode's environment notes, are copied as they are.
+   The output shows `active (running)`. You can close the SSH app; you don't
+   need it for daily use.
 
 If you changed `username` or `name`, use those values instead of `warlock` and
-`warlock-box` in these commands.
+`warlock-box`.
 
-Tailscale's default access policy asks you to re-authenticate in a browser
-before an SSH login, at most every 12 hours. To skip that, change the SSH
-rule's `action` from `check` to `accept` in your tailnet policy file.
+To skip the browser approval on each SSH login, change the SSH rule's `action`
+from `check` to `accept` in your tailnet policy file. The default asks again at
+most every 12 hours.
+
+### Optional: copy your Claude Code setup
+
+To copy your local `CLAUDE.md`, settings, skills, plugins, and themes to the
+box, run this from a computer on your tailnet:
+
+```sh
+scripts/sync-claude-config.sh warlock@warlock-box
+```
+
+The script never copies credentials, history, or project memory. Check your
+`settings.json` before you sync. Settings that describe your own machine, such
+as auto mode's environment notes, are copied as they are.
 
 ## Use the box from your phone
 
