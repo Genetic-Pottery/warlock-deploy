@@ -124,15 +124,16 @@ phone steps work the same from any terminal on your tailnet.
    Logins happen on the box, not in Terraform. Anything passed through
    Terraform ends up in the state file and the instance metadata.
 
-1. Install Warlock, then sign in to your tracker:
+1. Install Warlock, then check your tracker connection:
 
    ```sh
    warlock-install
    claude
    ```
 
-   In Claude, run `/mcp`, select Linear or Atlassian, and complete sign-in.
-   Exit with `/exit`.
+   In Claude, run `/mcp`. Linear and Atlassian connectors you added to your
+   Claude account follow your login, so they show as connected. If one
+   doesn't, select it and complete sign-in. Exit with `/exit`.
 
 1. Turn on Remote Control:
 

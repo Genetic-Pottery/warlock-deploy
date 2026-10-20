@@ -17,7 +17,7 @@ output "next_steps" {
     3. Log in to GitHub:  gh auth login
     4. Log in to Claude:  cd ~/Projects && claude
     5. Install warlock:   warlock-install
-    6. Sign in to your tracker: in claude, run /mcp
+    6. Check your tracker: in claude, run /mcp
     7. Turn on Remote Control: remote-control-enable
        Press Ctrl-C once ${var.name} appears in the Claude app.
   EOT
